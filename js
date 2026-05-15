@@ -1,317 +1,232 @@
-let currentUser = null;
-let adminToken = null;
+const express = require('express');
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
-// ====== GESTION DES PAGES ======
-function showPage(pageName) {
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    document.getElementById(pageName).classList.add('active');
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Middleware
+app.use(express.json());
+app.use(express.static('public'));
+
+// Paths pour les données
+const dataDir = path.join(__dirname, 'data');
+const usersFile = path.join(dataDir, 'users.json');
+const itemsFile = path.join(dataDir, 'items.json');
+
+// Créer le dossier data s'il n'existe pas
+if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir);
 }
 
-// ====== AUTHENTIFICATION ======
-function toggleAuth() {
-    document.getElementById('register-form').classList.toggle('active');
-    document.getElementById('login-form').classList.toggle('active');
+// Initialiser les fichiers JSON
+function initializeData() {
+    if (!fs.existsSync(usersFile)) {
+        fs.writeFileSync(usersFile, JSON.stringify([], null, 2));
+    }
+    if (!fs.existsSync(itemsFile)) {
+        fs.writeFileSync(itemsFile, JSON.stringify([], null, 2));
+    }
 }
 
-async function register() {
-    const username = document.getElementById('reg-username').value;
-    const email = document.getElementById('reg-email').value;
-    const password = document.getElementById('reg-password').value;
+// Lire les données
+function readUsers() {
+    try {
+        return JSON.parse(fs.readFileSync(usersFile, 'utf8'));
+    } catch (e) {
+        return [];
+    }
+}
+
+function readItems() {
+    try {
+        return JSON.parse(fs.readFileSync(itemsFile, 'utf8'));
+    } catch (e) {
+        return [];
+    }
+}
+
+// Écrire les données
+function writeUsers(users) {
+    fs.writeFileSync(usersFile, JSON.stringify(users, null, 2));
+}
+
+function writeItems(items) {
+    fs.writeFileSync(itemsFile, JSON.stringify(items, null, 2));
+}
+
+// Hash password
+function hashPassword(password) {
+    return crypto.createHash('sha256').update(password).digest('hex');
+}
+
+// Initialiser les données au démarrage
+initializeData();
+
+// ROUTES AUTHENTIFICATION
+
+// Inscription
+app.post('/api/register', (req, res) => {
+    const { username, email, password } = req.body;
 
     if (!username || !email || !password) {
-        alert('Tous les champs sont requis');
-        return;
+        return res.status(400).json({ error: 'Tous les champs sont requis' });
     }
 
-    try {
-        const response = await fetch('/api/auth/register', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, email, password })
-        });
+    const users = readUsers();
 
-        const data = await response.json();
+    // Vérifier si l'utilisateur existe déjà
+    if (users.find(u => u.username === username || u.email === email)) {
+        return res.status(400).json({ error: 'Utilisateur ou email déjà existant' });
+    }
 
-        if (response.ok) {
-            localStorage.setItem('token', data.token);
-            currentUser = data.user;
-            loadDashboard();
-            showPage('dashboard-page');
-        } else {
-            alert(data.error);
+    // Créer le nouvel utilisateur
+    const newUser = {
+        id: Date.now().toString(),
+        username,
+        email,
+        password: hashPassword(password),
+        createdAt: new Date().toISOString(),
+        lastLogin: new Date().toISOString()
+    };
+
+    users.push(newUser);
+    writeUsers(users);
+
+    res.json({
+        message: 'Inscription réussie',
+        user: {
+            id: newUser.id,
+            username: newUser.username,
+            email: newUser.email
         }
-    } catch (err) {
-        alert('Erreur lors de l\'inscription');
-        console.error(err);
-    }
-}
-
-async function login() {
-    const username = document.getElementById('login-username').value;
-    const password = document.getElementById('login-password').value;
-
-    if (!username || !password) {
-        alert('Username et password requis');
-        return;
-    }
-
-    try {
-        const response = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password })
-        });
-
-        const data = await response.json();
-
-        if (response.ok) {
-            localStorage.setItem('token', data.token);
-            currentUser = data.user;
-            loadDashboard();
-            showPage('dashboard-page');
-        } else {
-            alert(data.error);
-        }
-    } catch (err) {
-        alert('Erreur lors de la connexion');
-        console.error(err);
-    }
-}
-
-function logout() {
-    localStorage.removeItem('token');
-    currentUser = null;
-    showPage('auth-page');
-    document.getElementById('register-form').classList.add('active');
-    document.getElementById('login-form').classList.remove('active');
-}
-
-// ====== DASHBOARD ======
-async function loadDashboard() {
-    if (currentUser) {
-        document.getElementById('username-display').textContent = `Bienvenue ${currentUser.username} 👋`;
-    }
-    await loadWishlist();
-}
-
-async function addItem() {
-    const url = document.getElementById('item-url').value;
-    const title = document.getElementById('item-title').value;
-    const price = document.getElementById('item-price').value;
-
-    if (!url) {
-        alert('Veuillez entrer une URL');
-        return;
-    }
-
-    // Validation simple d'URL
-    try {
-        new URL(url);
-    } catch {
-        alert('URL invalide');
-        return;
-    }
-
-    try {
-        const token = localStorage.getItem('token');
-        const response = await fetch('/api/wishlist/add', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({
-                url,
-                title: title || extractTitleFromUrl(url),
-                image_url: await fetchImageFromUrl(url),
-                price
-            })
-        });
-
-        if (response.ok) {
-            document.getElementById('item-url').value = '';
-            document.getElementById('item-title').value = '';
-            document.getElementById('item-price').value = '';
-            await loadWishlist();
-            alert('✅ Article ajouté avec succès!');
-        } else {
-            alert('Erreur lors de l\'ajout');
-        }
-    } catch (err) {
-        console.error(err);
-        alert('Erreur lors de l\'ajout');
-    }
-}
-
-async function loadWishlist() {
-    try {
-        const token = localStorage.getItem('token');
-        const response = await fetch('/api/wishlist', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-
-        const items = await response.json();
-        const container = document.getElementById('wishlist-container');
-
-        if (items.length === 0) {
-            container.innerHTML = '<p class="empty-state">Aucun article pour le moment... Commencez à ajouter! 🎁</p>';
-            return;
-        }
-
-        container.innerHTML = items.map(item => `
-            <div class="wishlist-item">
-                <img src="${item.image_url || 'https://via.placeholder.com/200x200?text=No+Image'}" 
-                     alt="${item.title}" 
-                     class="item-image"
-                     onerror="this.src='https://via.placeholder.com/200x200?text=No+Image'">
-                <div class="item-info">
-                    <div class="item-title">${item.title}</div>
-                    ${item.price ? `<div class="item-price">${item.price}</div>` : ''}
-                    <div class="item-actions">
-                        <button class="btn-visit" onclick="window.open('${item.url}', '_blank')">🔗 Voir</button>
-                        <button class="btn-delete" onclick="deleteItem('${item.id}')">🗑️</button>
-                    </div>
-                </div>
-            </div>
-        `).join('');
-    } catch (err) {
-        console.error(err);
-    }
-}
-
-async function deleteItem(id) {
-    if (!confirm('Êtes-vous sûr de vouloir supprimer cet article?')) return;
-
-    try {
-        const token = localStorage.getItem('token');
-        const response = await fetch(`/api/wishlist/${id}`, {
-            method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-
-        if (response.ok) {
-            await loadWishlist();
-        }
-    } catch (err) {
-        console.error(err);
-    }
-}
-
-// ====== UTILITAIRES ======
-function extractTitleFromUrl(url) {
-    try {
-        const domain = new URL(url).hostname.replace('www.', '');
-        return `Article de ${domain}`;
-    } catch {
-        return 'Article sans titre';
-    }
-}
-
-async function fetchImageFromUrl(url) {
-    // En production, vous auriez besoin d'un backend qui scrape le site
-    // Pour maintenant, on retourne un placeholder
-    return 'https://via.placeholder.com/200x200?text=Article';
-}
-
-// ====== PANEL ADMIN ======
-function showAdminModal() {
-    document.getElementById('admin-modal').classList.add('show');
-}
-
-function closeAdminModal() {
-    document.getElementById('admin-modal').classList.remove('show');
-    document.getElementById('admin-code').value = '';
-    document.getElementById('admin-error').textContent = '';
-}
-
-async function verifyAdmin() {
-    const code = document.getElementById('admin-code').value;
-
-    if (!code) {
-        document.getElementById('admin-error').textContent = 'Veuillez entrer un code';
-        return;
-    }
-
-    try {
-        const response = await fetch('/api/admin/verify', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ code })
-        });
-
-        const data = await response.json();
-
-        if (response.ok) {
-            adminToken = data.token;
-            localStorage.setItem('adminToken', adminToken);
-            closeAdminModal();
-            loadAdminPanel();
-            showPage('admin-page');
-        } else {
-            document.getElementById('admin-error').textContent = '❌ Code invalide';
-        }
-    } catch (err) {
-        console.error(err);
-        document.getElementById('admin-error').textContent = 'Erreur serveur';
-    }
-}
-
-async function loadAdminPanel() {
-    try {
-        const token = localStorage.getItem('adminToken');
-        const response = await fetch('/api/admin/stats', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-
-        const data = await response.json();
-
-        // Mettre à jour les statistiques
-        document.getElementById('stat-users').textContent = data.total_users;
-        document.getElementById('stat-items').textContent = data.total_items;
-
-        // Remplir le tableau des utilisateurs
-        const tbody = document.getElementById('users-tbody');
-        tbody.innerHTML = data.users.map(user => `
-            <tr>
-                <td>${user.username}</td>
-                <td>${user.email}</td>
-                <td>${new Date(user.created_at).toLocaleDateString('fr-FR')}</td>
-                <td>${user.last_login ? new Date(user.last_login).toLocaleString('fr-FR') : 'N/A'}</td>
-                <td>${user.items_count}</td>
-            </tr>
-        `).join('');
-    } catch (err) {
-        console.error(err);
-        alert('Erreur lors du chargement du panel admin');
-    }
-}
-
-function logoutAdmin() {
-    adminToken = null;
-    localStorage.removeItem('adminToken');
-    showPage('dashboard-page');
-}
-
-// ====== INITIALISATION ======
-document.addEventListener('DOMContentLoaded', () => {
-    const token = localStorage.getItem('token');
-    const adminToken = localStorage.getItem('adminToken');
-
-    if (adminToken) {
-        loadAdminPanel();
-        showPage('admin-page');
-    } else if (token) {
-        showPage('dashboard-page');
-        loadDashboard();
-    } else {
-        showPage('auth-page');
-    }
+    });
 });
 
-// Fermer le modal en cliquant en dehors
-document.addEventListener('click', (e) => {
-    const modal = document.getElementById('admin-modal');
-    if (e.target === modal) {
-        closeAdminModal();
+// Connexion
+app.post('/api/login', (req, res) => {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+        return res.status(400).json({ error: 'Username et password requis' });
     }
+
+    const users = readUsers();
+    const user = users.find(u => u.username === username);
+
+    if (!user || user.password !== hashPassword(password)) {
+        return res.status(400).json({ error: 'Identifiants invalides' });
+    }
+
+    // Mettre à jour la dernière connexion
+    user.lastLogin = new Date().toISOString();
+    writeUsers(users);
+
+    res.json({
+        message: 'Connexion réussie',
+        user: {
+            id: user.id,
+            username: user.username,
+            email: user.email
+        }
+    });
+});
+
+// ROUTES ARTICLES
+
+// Ajouter un article
+app.post('/api/items', (req, res) => {
+    const { userId, url, title, price } = req.body;
+
+    if (!userId || !url) {
+        return res.status(400).json({ error: 'userId et url requis' });
+    }
+
+    const items = readItems();
+
+    // Extraire le nom de domaine
+    const domainMatch = url.match(/https?:\/\/(?:www\.)?([^\/]+)/);
+    const domain = domainMatch ? domainMatch[1] : 'unknown';
+
+    const newItem = {
+        id: Date.now().toString(),
+        userId,
+        url,
+        title: title || 'Article sans titre',
+        price: price || 'Prix non spécifié',
+        domain,
+        createdAt: new Date().toISOString()
+    };
+
+    items.push(newItem);
+    writeItems(items);
+
+    res.json({
+        message: 'Article ajouté',
+        item: newItem
+    });
+});
+
+// Récupérer les articles d'un utilisateur
+app.get('/api/items/:userId', (req, res) => {
+    const { userId } = req.params;
+    const items = readItems();
+
+    const userItems = items.filter(item => item.userId === userId);
+
+    res.json({ items: userItems });
+});
+
+// Supprimer un article
+app.delete('/api/items/:itemId', (req, res) => {
+    const { itemId } = req.params;
+    let items = readItems();
+
+    const itemIndex = items.findIndex(item => item.id === itemId);
+
+    if (itemIndex === -1) {
+        return res.status(404).json({ error: 'Article non trouvé' });
+    }
+
+    items.splice(itemIndex, 1);
+    writeItems(items);
+
+    res.json({ message: 'Article supprimé' });
+});
+
+// ROUTES ADMIN
+
+// Récupérer tous les utilisateurs (pour l'admin)
+app.get('/api/admin/users', (req, res) => {
+    const users = readUsers();
+    const items = readItems();
+
+    const usersWithStats = users.map(user => ({
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        createdAt: user.createdAt,
+        lastLogin: user.lastLogin,
+        itemCount: items.filter(item => item.userId === user.id).length
+    }));
+
+    res.json({ users: usersWithStats });
+});
+
+// Récupérer les stats globales
+app.get('/api/admin/stats', (req, res) => {
+    const users = readUsers();
+    const items = readItems();
+
+    res.json({
+        totalUsers: users.length,
+        totalItems: items.length
+    });
+});
+
+// Démarrer le serveur
+app.listen(PORT, () => {
+    console.log(`🚀 Serveur BIBLIOTHÈQUE lancé sur http://localhost:${PORT}`);
+    console.log(`📚 Accédez à l'application sur http://localhost:${PORT}`);
 });
