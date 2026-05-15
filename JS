@@ -1,0 +1,212 @@
+const express = require('express');
+const cors = require('cors');
+const path = require('path');
+const fs = require('fs');
+require('dotenv').config();
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+const ADMIN_CODE = process.env.ADMIN_CODE || 'Admin1817';
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+app.use(express.static('public'));
+
+// ====== DONNÉES (JSON LOCAL) ======
+const DATA_FILE = 'data.json';
+
+const initData = () => {
+  if (!fs.existsSync(DATA_FILE)) {
+    fs.writeFileSync(DATA_FILE, JSON.stringify({
+      users: [],
+      wishlists: [],
+      adminLogs: []
+    }, null, 2));
+  }
+};
+
+const getData = () => JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+const saveData = (data) => fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+
+// ====== AUTHENTIFICATION ======
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const JWT_SECRET = process.env.JWT_SECRET || 'your_secret_key';
+
+const generateToken = (userId) => {
+  return jwt.sign({ userId }, JWT_SECRET, { expiresIn: '7d' });
+};
+
+const verifyToken = (token) => {
+  try {
+    return jwt.verify(token, JWT_SECRET);
+  } catch (err) {
+    return null;
+  }
+};
+
+// ====== ROUTES ======
+
+// 1. INSCRIPTION
+app.post('/api/auth/register', (req, res) => {
+  const { username, password, email } = req.body;
+  
+  if (!username || !password || !email) {
+    return res.status(400).json({ error: 'Tous les champs sont requis' });
+  }
+
+  const data = getData();
+  
+  if (data.users.find(u => u.username === username || u.email === email)) {
+    return res.status(400).json({ error: 'Utilisateur déjà existant' });
+  }
+
+  const userId = Date.now().toString();
+  const hashedPassword = bcrypt.hashSync(password, 10);
+
+  data.users.push({
+    id: userId,
+    username,
+    email,
+    password: hashedPassword,
+    created_at: new Date().toISOString(),
+    last_login: null
+  });
+
+  saveData(data);
+  const token = generateToken(userId);
+  
+  res.json({ 
+    token, 
+    user: { id: userId, username, email } 
+  });
+});
+
+// 2. CONNEXION
+app.post('/api/auth/login', (req, res) => {
+  const { username, password } = req.body;
+  
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username et password requis' });
+  }
+
+  const data = getData();
+  const user = data.users.find(u => u.username === username);
+
+  if (!user || !bcrypt.compareSync(password, user.password)) {
+    return res.status(401).json({ error: 'Identifiants invalides' });
+  }
+
+  // Mettre à jour last_login
+  user.last_login = new Date().toISOString();
+  saveData(data);
+
+  const token = generateToken(user.id);
+  res.json({ 
+    token, 
+    user: { id: user.id, username: user.username, email: user.email } 
+  });
+});
+
+// 3. AJOUTER UN ARTICLE À LA WISHLIST
+app.post('/api/wishlist/add', (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  const decoded = verifyToken(token);
+  
+  if (!decoded) return res.status(401).json({ error: 'Non authentifié' });
+
+  const { url, title, image_url, price } = req.body;
+  
+  if (!url) return res.status(400).json({ error: 'URL requis' });
+
+  const data = getData();
+  const itemId = Date.now().toString();
+
+  data.wishlists.push({
+    id: itemId,
+    user_id: decoded.userId,
+    url,
+    title: title || 'Article sans titre',
+    image_url: image_url || '',
+    price: price || '',
+    added_at: new Date().toISOString()
+  });
+
+  saveData(data);
+  res.json({ id: itemId, message: 'Article ajouté avec succès' });
+});
+
+// 4. RÉCUPÉRER LA WISHLIST D'UN UTILISATEUR
+app.get('/api/wishlist', (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  const decoded = verifyToken(token);
+  
+  if (!decoded) return res.status(401).json({ error: 'Non authentifié' });
+
+  const data = getData();
+  const items = data.wishlists.filter(w => w.user_id === decoded.userId);
+
+  res.json(items);
+});
+
+// 5. SUPPRIMER UN ARTICLE
+app.delete('/api/wishlist/:id', (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  const decoded = verifyToken(token);
+  
+  if (!decoded) return res.status(401).json({ error: 'Non authentifié' });
+
+  const data = getData();
+  const itemIndex = data.wishlists.findIndex(w => w.id === req.params.id && w.user_id === decoded.userId);
+
+  if (itemIndex === -1) return res.status(404).json({ error: 'Article non trouvé' });
+
+  data.wishlists.splice(itemIndex, 1);
+  saveData(data);
+
+  res.json({ message: 'Article supprimé' });
+});
+
+// 6. PANEL ADMIN - VÉRIFIER LE CODE
+app.post('/api/admin/verify', (req, res) => {
+  const { code } = req.body;
+
+  if (code !== ADMIN_CODE) {
+    return res.status(401).json({ error: 'Code admin invalide' });
+  }
+
+  const adminToken = jwt.sign({ admin: true }, JWT_SECRET, { expiresIn: '1h' });
+  res.json({ token: adminToken, message: 'Accès admin accordé' });
+});
+
+// 7. PANEL ADMIN - STATISTIQUES
+app.get('/api/admin/stats', (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  const decoded = jwt.verify(token, JWT_SECRET);
+
+  if (!decoded.admin) return res.status(401).json({ error: 'Non autorisé' });
+
+  const data = getData();
+
+  res.json({
+    total_users: data.users.length,
+    total_items: data.wishlists.length,
+    users: data.users.map(u => ({
+      id: u.id,
+      username: u.username,
+      email: u.email,
+      created_at: u.created_at,
+      last_login: u.last_login,
+      items_count: data.wishlists.filter(w => w.user_id === u.id).length
+    }))
+  });
+});
+
+// ====== SERVEUR ======
+initData();
+
+app.listen(PORT, () => {
+  console.log(`🚀 Serveur lancé sur http://localhost:${PORT}`);
+  console.log(`📚 Bienvenue sur BIBLIOTHÈQUE - Wishlist`);
+});
