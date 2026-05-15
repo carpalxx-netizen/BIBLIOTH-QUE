@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BIBLIOTHÈQUE - Wishlist Personnel</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app">
+        <!-- PAGE D'AUTHENTIFICATION -->
+        <div id="auth-page" class="page active">
+            <div class="auth-container">
+                <div class="auth-header">
+                    <h1>📚 BIBLIOTHÈQUE</h1>
+                    <p>Votre wishlist personnelle</p>
+                </div>
+
+                <!-- FORMULAIRE INSCRIPTION -->
+                <div id="register-form" class="auth-form active">
+                    <h2>Créer un compte</h2>
+                    <input type="text" id="reg-username" placeholder="Nom d'utilisateur" />
+                    <input type="email" id="reg-email" placeholder="Email" />
+                    <input type="password" id="reg-password" placeholder="Mot de passe" />
+                    <button onclick="register()">S'inscrire</button>
+                    <p>Vous avez déjà un compte? <a onclick="toggleAuth()">Se connecter</a></p>
+                </div>
+
+                <!-- FORMULAIRE CONNEXION -->
+                <div id="login-form" class="auth-form">
+                    <h2>Se connecter</h2>
+                    <input type="text" id="login-username" placeholder="Nom d'utilisateur" />
+                    <input type="password" id="login-password" placeholder="Mot de passe" />
+                    <button onclick="login()">Se connecter</button>
+                    <p>Pas encore inscrit? <a onclick="toggleAuth()">Créer un compte</a></p>
+                </div>
+
+                <!-- BOUTON ADMIN SECRET -->
+                <div class="admin-secret">
+                    <button onclick="showAdminModal()" class="admin-btn">🔐</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- PAGE DASHBOARD -->
+        <div id="dashboard-page" class="page">
+            <nav class="navbar">
+                <div class="navbar-brand">
+                    <h1>📚 BIBLIOTHÈQUE</h1>
+                </div>
+                <div class="navbar-right">
+                    <span id="username-display" class="username"></span>
+                    <button onclick="logout()" class="logout-btn">Déconnexion</button>
+                    <button onclick="showAdminModal()" class="admin-btn-nav">🔐</button>
+                </div>
+            </nav>
+
+            <div class="dashboard-container">
+                <!-- SECTION AJOUT D'ARTICLE -->
+                <div class="add-item-section">
+                    <h2>Ajouter un article</h2>
+                    <div class="add-item-form">
+                        <input type="text" id="item-url" placeholder="Collez le lien de l'article (ex: https://...)">
+                        <input type="text" id="item-title" placeholder="Titre (optionnel)">
+                        <input type="text" id="item-price" placeholder="Prix (optionnel)">
+                        <button onclick="addItem()">➕ Ajouter</button>
+                    </div>
+                </div>
+
+                <!-- SECTION WISHLIST -->
+                <div class="wishlist-section">
+                    <h2>Ma Bibliothèque</h2>
+                    <div id="wishlist-container" class="wishlist-grid">
+                        <p class="empty-state">Aucun article pour le moment... Commencez à ajouter! 🎁</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL ADMIN -->
+        <div id="admin-modal" class="modal">
+            <div class="modal-content">
+                <span class="close" onclick="closeAdminModal()">&times;</span>
+                <h2>🔐 Accès Admin</h2>
+                <input type="password" id="admin-code" placeholder="Entrez le code admin">
+                <button onclick="verifyAdmin()">Vérifier</button>
+                <div id="admin-error" class="error"></div>
+            </div>
+        </div>
+
+        <!-- PAGE ADMIN PANEL -->
+        <div id="admin-page" class="page">
+            <div class="admin-header">
+                <h1>🔐 Panel Admin</h1>
+                <button onclick="logoutAdmin()" class="logout-btn">Retour</button>
+            </div>
+
+            <div class="admin-stats">
+                <div class="stat-card">
+                    <h3>👥 Utilisateurs totaux</h3>
+                    <p id="stat-users">-</p>
+                </div>
+                <div class="stat-card">
+                    <h3>📚 Articles totaux</h3>
+                    <p id="stat-items">-</p>
+                </div>
+            </div>
+
+            <div class="admin-users">
+                <h2>Utilisateurs</h2>
+                <table id="users-table">
+                    <thead>
+                        <tr>
+                            <th>Utilisateur</th>
+                            <th>Email</th>
+                            <th>Inscription</th>
+                            <th>Dernière connexion</th>
+                            <th>Articles</th>
+                        </tr>
+                    </thead>
+                    <tbody id="users-tbody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
